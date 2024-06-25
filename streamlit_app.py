@@ -24,13 +24,14 @@ from dotenv import load_dotenv
 # Carga las variables de entorno del archivo .env en la raíz del proyecto
 load_dotenv()
 
-DB_PATH = os.getenv("DB_PATH")
+# Recuperamos la variable de entorno DIR_DATA
+directorio_datos = os.getenv('DIR_DATA')
 
 @st.cache_resource
 def get_db_connection():
     # Establecer la conexión con la base de datos SQLite
     # Evita el error de "OperationalError: SQLite objects created in a thread can only be used in that same thread." 
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False) 
+    conn = sqlite3.connect(directorio_datos + 'resenas.db', check_same_thread=False) 
     return conn
 
 # MEJORA Se puede dividir los datos de la BBDD en diferentes tablas para mejorar el rendimiento
@@ -138,7 +139,7 @@ def cities_of_a_country(country):
     start_time = time.time()
 
     # Conectar a la base de datos SQLite
-    conn = sqlite3.connect('resenas.db')
+    conn = sqlite3.connect(directorio_datos + 'resenas.db')
 
     # Crear un cursor
     cur = conn.cursor()
@@ -176,7 +177,7 @@ def unique_values_of_a_column(df, column):
 
 @st.cache_data
 def get_review_data(cuisine):
-    conn = sqlite3.connect('resenas.db')
+    conn = sqlite3.connect(directorio_datos + 'resenas.db')
     cur = conn.cursor()
 
     cur.execute("""
@@ -213,9 +214,10 @@ with inicio:
 
     st.divider()
 
+    from pandas import concat, read_csv
+        
     # Visualización de datos generales de nuestro dataset
-    ## Importamos nuestro df de restaurantes con los siguientes argumentos: header=True, inferSchema=True, sep=",", escape="\""
-    df = pd.read_csv('../tripadvisor_european_restaurants.csv')
+    df = read_csv( directorio_datos + 'tripadvisor_european_restaurants_clean.csv' )
 
     ## Mostramos el número de registros
     ### Creamos una fila con 3 columnas
@@ -249,7 +251,7 @@ with inicio:
         st.metric(label = "Calificación promedio del servicio", value = round(df['service'].mean(),2))
 
     ## mostramos solo 10 registros
-    st.write(df.head(10))
+    # st.write(df.head(10))
 
     country = "Spain"
     city = "Madrid"
@@ -272,6 +274,11 @@ with inicio:
     if df_filtered.empty:
         st.write('No hay datos para el país y la ciudad seleccionados.')
     else:
+        st.title('Análisis laboral')
+
+        # Mostramos las horas trabajadas por semana del país y ciudad seleccionados
+        st.metric(label='Horas trabajadas por día', value=df_filtered['working_shifts_per_week'].mean())
+        
         # Crea el histograma
         fig = go.Figure(
             data=[
@@ -295,10 +302,71 @@ with inicio:
         # Muestra la figura en Streamlit
         st.plotly_chart(fig)
 
-        # Subtítulo para outliers
-        st.subheader('Outliers')
+        ## **Distribución de restaurantes por país y promedio de calificaciones:** Crea un mapa interactivo con los países donde se encuentran los restaurantes, coloreado según el promedio general de las calificaciones. Esto permitirá al inversor identificar fácilmente aquellos países con una oferta gastronómica de mayor calidad o viceversa.
+        st.title('Distribución de restaurantes por país y promedio de calificaciones')
+        st.text('mapa interactivo con los países donde se encuentran los restaurantes, coloreado según el promedio general de las calificaciones. Esto permitirá al inversor identificar fácilmente aquellos países con una oferta gastronómica de mayor calidad o viceversa.')
+
+        # Agrupamos los datos por país y calculamos el promedio de las calificaciones
+        df_grouped = df.groupby('country').agg({'avg_rating': 'mean'}).reset_index()
+
+        # Creamos un mapa de coropletas con Plotly Express de Europa
+        fig = px.choropleth(df_grouped,
+                            locations='country',
+                            locationmode='country names',
+                            color='avg_rating',
+                            hover_name='country',
+                            color_continuous_scale='Viridis',
+                            title='Promedio de calificaciones de restaurantes por país')
+        
+        # Mostramos el mapa en Streamlit
+        st.plotly_chart(fig)
+
+        # **Correlación entre el precio y la calificación:** Crea un gráfico de dispersión para mostrar la relación entre los precios de los restaurantes y sus respectivas calificaciones generales, con una función de arrastrar y soltar para seleccionar diferentes rangos de precios. Esto permitirá al inversor evaluar si existe una relación positiva o negativa entre el precio y la calidad percibida del restaurante.
+        st.title('Correlación entre el precio y la calificación')
+
+        st.text('Gráfico de dispersión para mostrar la relación entre los precios de los restaurantes y sus respectivas calificaciones generales, con una función de arrastrar y soltar para seleccionar diferentes rangos de precios.')
+
+        # Crea un gráfico de dispersión con Plotly Express
+        fig = px.scatter(df_filtered, x='price_level', y='avg_rating', color='price_level',
+                        title='Correlación entre el precio y la calificación')
+        
+        # Configura los títulos de los ejes
+        fig.update_layout(xaxis_title='Precio', yaxis_title='Calificación promedio')
+
+        # Muestra el gráfico en Streamlit
+        st.plotly_chart(fig)
 
         fig = go.Figure()
+
+        # **Número de opiniones por rango de calificación:** Crea un gráfico de barras que represente el número de reseñas para diferentes rangos de calificaciones (p. ej., [0-2], [2-4], [4-6], y [6-8]). Esto podría ayudar al inversor a identificar restaurantes con una buena reputación pero un volumen bajo de opiniones, que pueden ser interesantes para invertir.
+        st.title('Número de opiniones por rango de calificación')
+        st.text('Gráfico de barras que represente el número de reseñas para diferentes rangos de calificaciones (p. ej., [0-2], [2-4], [4-6], y [6-8]).')
+
+        # Crea un histograma de la columna avg_rating
+        fig = go.Figure(
+            data=[
+                go.Histogram(
+                    x=df_filtered['avg_rating'], 
+                    nbinsx=10,
+                    marker=dict(color='green', line=dict(color='black', width=1))
+                )
+            ]
+        )
+
+        # Configura los títulos de los ejes y el título del gráfico
+        fig.update_layout(
+            title_text='Número de opiniones por rango de calificación',
+            xaxis_title_text='Calificación promedio',
+            yaxis_title_text='Frecuencia',
+            bargap=0.2,
+            bargroupgap=0.1
+        )
+
+        # Muestra la figura en Streamlit
+        st.plotly_chart(fig)
+
+        # Subtítulo para outliers
+        st.subheader('Outliers')
 
         columns = ['avg_rating', 'food', 'service', 'value']
 
@@ -310,6 +378,24 @@ with inicio:
 
         fig.update_layout(yaxis_zeroline=False, violinmode='overlay')
         st.plotly_chart(fig)
+
+        # **Calificación promedio por categoría:** Crea una matriz de calor interactiva que muestre la calificación promedio de los restaurantes en diferentes categorías (comida, servicio y valor). Esto ayudará al inversor a identificar rápidamente aquellos restaurantes con una oferta gastronómica superior en general.
+        st.title('Calificación promedio por categoría')
+        st.text('Matriz de calor interactiva que muestre la calificación promedio de los restaurantes en diferentes categorías (comida, servicio y valor).')
+
+        # Crea una matriz de correlación con Plotly Express
+        fig = px.imshow(df_filtered[['food', 'service', 'value']].corr(),
+                        labels=dict(color='Correlación'),
+                        title='Calificación promedio por categoría')
+        
+        # Muestra la matriz de correlación en Streamlit
+        st.plotly_chart(fig)
+
+        # Ensure the DataFrame structure is as expected:
+        df_counts = df_filtered['city'].value_counts().reset_index()
+        df_counts.columns = ['city', 'count']  # Rename columns appropriately
+        fig = px.bar(df_counts, x='city', y='count')
+
 
     import json
 
